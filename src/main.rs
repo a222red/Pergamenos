@@ -1,6 +1,6 @@
-use std::{io::Stdout, borrow::Cow};
+use std::{io::{self, Stdout}, borrow::Cow, path::{Path, PathBuf}};
 
-use ropey::{Rope, RopeSlice, RopeBuilder};
+use ropey::Rope;
 use ratatui::{
     backend::CrosstermBackend,
     widgets::{Block, Borders, Paragraph}, text::{Span, Line}, style::Style, prelude::Alignment
@@ -38,26 +38,55 @@ fn deinit(terminal: &mut Terminal) {
         .expect("Couldn't leave alternate screen");
 }
 
+struct Buffer {
+    pub buf: Rope,
+    pub file_path: Option<PathBuf>
+}
+
+impl Buffer {
+    pub fn open(path: impl AsRef<Path>) -> Result<Buffer, io::Error> {
+        let file = std::fs::File::open(&path)?;
+
+        let buf = Rope::from_reader(file)?;
+
+        return Ok(Buffer {
+            buf,
+            file_path: Some(path.as_ref().to_owned())
+        });
+    }
+}
+
+struct Window {
+    buffer: usize
+}
+
+struct EditorState {
+    pub buffers: Vec<Buffer>,
+    pub windows: Vec<Window>
+}
+
 fn main() {
     let mut terminal = init();
     let filename = std::env::args().nth(1).expect("No argument given");
 
-    let file = std::fs::File::open(&filename)
-        .expect("Couln't open '{filename}'");
-
-    let buffer = Rope::from_reader(file)
-        .expect("Couln't read from '{filename}'");
+    let buffer = Buffer::open(&filename)
+        .expect(&format!("Couldn't open '{filename}'"));
 
     terminal.draw(move |f| {
         let size = f.size();
 
+        let title = match buffer.file_path {
+            Some(path) => path.to_string_lossy().to_string(),
+            None => "<scratch>".into()
+        };
+
         let block = Block::default()
-            .title(filename)
+            .title(title.as_ref())
             .borders(Borders::ALL);
 
         let block_inner_size = block.inner(size);
 
-        let lines = buffer.lines().map(|line|
+        let lines = buffer.buf.lines().map(|line|
             Line {
                 spans: line.chunks().map(|slice|
                     Span {
